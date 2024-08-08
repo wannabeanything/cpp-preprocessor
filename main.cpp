@@ -7,32 +7,133 @@
 #include <string>
 #include <vector>
 
-using namespace std;
-using filesystem::path;
+using std::filesystem::path;
+using namespace std::literals::string_literals;
 
-path operator""_p(const char* data, std::size_t sz) {
+path operator""_p (const char* data, std::size_t sz) {
     return path(data, data + sz);
 }
 
-// напишите эту функцию
-bool Preprocess(const path& in_file, const path& out_file, const vector<path>& include_directories);
+void PrintNegative (const std::string &include_filename,
+                    const std::string &parent_filename,
+                    size_t line_no) {
+    std::cout << "unknown include file " << include_filename << " at file "
+              << parent_filename << " at line " << line_no << std::endl;
+}
 
-string GetFileContents(string file) {
-    ifstream stream(file);
+bool PreprocessInternal (std::ifstream& input_stream,
+                     std::ofstream& output_stream,
+                     const path& in_file,
+                     const std::vector<path>& include_directories) {
+    static std::regex single_include(R"/(\s*#\s*include\s*"([^"]*)"\s*)/");
+    static std::regex multy_include(R"/(\s*#\s*include\s*<([^>]*)>\s*)/");
+    std::smatch match;
+    std::string read_line;
+    size_t line_no = 0;
 
-    // конструируем string по двум итераторам
-    return {(istreambuf_iterator<char>(stream)), istreambuf_iterator<char>()};
+    while (std::getline(input_stream, read_line)) {
+        path file_path;
+        bool found = true;
+        ++ line_no;
+
+        if (std::regex_match(read_line, match, single_include)) {
+            file_path = in_file.parent_path() / std::string(match[1]);
+
+            if (std::filesystem::exists(file_path)) {
+                std::ifstream new_input_stream(file_path.string(), std::ios::in);
+                if (new_input_stream.is_open()) {
+                    if (!PreprocessInternal(new_input_stream,
+                                        output_stream,
+                                        file_path.string(),
+                                        include_directories)) {
+                        return false;
+                    }
+                    continue;
+                } else {
+                    PrintNegative(file_path.filename().string(),
+                                  in_file.string(),
+                                  line_no);
+                    return false;
+                }
+            } else {
+                found = false;
+            }
+        }
+
+        if ((!found) || (std::regex_match(read_line, match, multy_include))) {
+            bool founded = false;
+            for (const auto& dir : include_directories) {
+                file_path = dir / std::string(match[1]);
+                if (std::filesystem::exists(file_path)) {
+                    std::ifstream new_input_stream(file_path.string(), std::ios::in);
+                    if (new_input_stream.is_open()) {
+                        if (!PreprocessInternal(new_input_stream,
+                                            output_stream,
+                                            file_path.string(),
+                                            include_directories)) {
+                            return false;
+                        }
+                        founded = true;
+                        break;
+                    } else {
+                        PrintNegative(file_path.filename().string(),
+                                      in_file.string(),
+                                      line_no);
+                        return false;
+                    }
+                }
+            }
+            if (!founded) {
+                PrintNegative(file_path.filename().string(),
+                              in_file.string(),
+                              line_no);
+                return false;
+            }
+            continue;
+        }
+        output_stream << read_line << std::endl;
+    }
+    return true;
+}
+
+bool Preprocess (const path& in_file,
+                 const path& out_file,
+                 const std::vector<path>& include_directories) {
+    if (!std::filesystem::exists(in_file)) {
+        return false;
+    }
+    if (std::filesystem::is_empty(in_file)) {
+        return false;
+    }
+
+    std::ifstream input_stream(in_file);
+    if (!input_stream) {
+        return false;
+    }
+
+    std::ofstream output_stream(out_file);
+    if (!output_stream) {
+        return false;
+    }
+    
+    return PreprocessInternal(input_stream, output_stream, in_file, include_directories);
+}
+
+std::string GetFileContents(std::string file) {
+    std::ifstream stream(file);
+
+    return {(std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>()};
 }
 
 void Test() {
-    error_code err;
-    filesystem::remove_all("sources"_p, err);
-    filesystem::create_directories("sources"_p / "include2"_p / "lib"_p, err);
-    filesystem::create_directories("sources"_p / "include1"_p, err);
-    filesystem::create_directories("sources"_p / "dir1"_p / "subdir"_p, err);
+    std::error_code err;
+    std::filesystem::remove_all("sources"_p, err);
+    std::filesystem::create_directories("sources"_p / "include2"_p / "lib"_p, err);
+    std::filesystem::create_directories("sources"_p / "include1"_p, err);
+    std::filesystem::create_directories("sources"_p / "dir1"_p / "subdir"_p, err);
 
     {
-        ofstream file("sources/a.cpp");
+        std::ofstream file("sources/a.cpp");
         file << "// this comment before include\n"
                 "#include \"dir1/b.h\"\n"
                 "// text between b.h and c.h\n"
@@ -44,36 +145,36 @@ void Test() {
                 "}\n"s;
     }
     {
-        ofstream file("sources/dir1/b.h");
+        std::ofstream file("sources/dir1/b.h");
         file << "// text from b.h before include\n"
                 "#include \"subdir/c.h\"\n"
                 "// text from b.h after include"s;
     }
     {
-        ofstream file("sources/dir1/subdir/c.h");
+        std::ofstream file("sources/dir1/subdir/c.h");
         file << "// text from c.h before include\n"
                 "#include <std1.h>\n"
                 "// text from c.h after include\n"s;
     }
     {
-        ofstream file("sources/dir1/d.h");
+        std::ofstream file("sources/dir1/d.h");
         file << "// text from d.h before include\n"
                 "#include \"lib/std2.h\"\n"
                 "// text from d.h after include\n"s;
     }
     {
-        ofstream file("sources/include1/std1.h");
+        std::ofstream file("sources/include1/std1.h");
         file << "// std1\n"s;
     }
     {
-        ofstream file("sources/include2/lib/std2.h");
+        std::ofstream file("sources/include2/lib/std2.h");
         file << "// std2\n"s;
     }
 
     assert((!Preprocess("sources"_p / "a.cpp"_p, "sources"_p / "a.in"_p,
                                   {"sources"_p / "include1"_p,"sources"_p / "include2"_p})));
 
-    ostringstream test_out;
+    std::ostringstream test_out;
     test_out << "// this comment before include\n"
                 "// text from b.h before include\n"
                 "// text from c.h before include\n"
@@ -93,4 +194,5 @@ void Test() {
 
 int main() {
     Test();
+    return 0;
 }
