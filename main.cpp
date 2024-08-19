@@ -20,6 +20,26 @@ void PrintNegative (const std::string &include_filename,
     std::cout << "unknown include file " << include_filename << " at file "
               << parent_filename << " at line " << line_no << std::endl;
 }
+bool PreprocessInternal (std::ifstream& input_stream,
+                     std::ofstream& output_stream,
+                     const path& in_file,
+                     const std::vector<path>& include_directories);
+bool ProcessIncludeFile(const path& file_path,
+                        const std::string& in_file_str,
+                        size_t line_no,
+                        std::ofstream& output_stream,
+                        const std::vector<path>& include_directories) {
+    std::ifstream new_input_stream(file_path.string(), std::ios::in);
+    if (new_input_stream.is_open()) {
+        if (!PreprocessInternal(new_input_stream, output_stream, file_path.string(), include_directories)) {
+            return false;
+        }
+    } else {
+        PrintNegative(file_path.filename().string(), in_file_str, line_no);
+        return false;
+    }
+    return true;
+}
 
 bool PreprocessInternal (std::ifstream& input_stream,
                      std::ofstream& output_stream,
@@ -40,21 +60,10 @@ bool PreprocessInternal (std::ifstream& input_stream,
             file_path = in_file.parent_path() / std::string(match[1]);
 
             if (std::filesystem::exists(file_path)) {
-                std::ifstream new_input_stream(file_path.string(), std::ios::in);
-                if (new_input_stream.is_open()) {
-                    if (!PreprocessInternal(new_input_stream,
-                                        output_stream,
-                                        file_path.string(),
-                                        include_directories)) {
-                        return false;
-                    }
-                    continue;
-                } else {
-                    PrintNegative(file_path.filename().string(),
-                                  in_file.string(),
-                                  line_no);
+                if (!ProcessIncludeFile(file_path, in_file.string(), line_no, output_stream, include_directories)) {
                     return false;
                 }
+                continue;
             } else {
                 found = false;
             }
@@ -65,28 +74,16 @@ bool PreprocessInternal (std::ifstream& input_stream,
             for (const auto& dir : include_directories) {
                 file_path = dir / std::string(match[1]);
                 if (std::filesystem::exists(file_path)) {
-                    std::ifstream new_input_stream(file_path.string(), std::ios::in);
-                    if (new_input_stream.is_open()) {
-                        if (!PreprocessInternal(new_input_stream,
-                                            output_stream,
-                                            file_path.string(),
-                                            include_directories)) {
-                            return false;
-                        }
+                    if (ProcessIncludeFile(file_path, in_file.string(), line_no, output_stream, include_directories)) {
                         founded = true;
                         break;
                     } else {
-                        PrintNegative(file_path.filename().string(),
-                                      in_file.string(),
-                                      line_no);
                         return false;
                     }
                 }
             }
             if (!founded) {
-                PrintNegative(file_path.filename().string(),
-                              in_file.string(),
-                              line_no);
+                PrintNegative(file_path.filename().string(), in_file.string(), line_no);
                 return false;
             }
             continue;
