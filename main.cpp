@@ -41,57 +41,47 @@ bool ProcessIncludeFile(const path& file_path,
     return true;
 }
 
-bool PreprocessInternal (std::ifstream& input_stream,
-                     std::ofstream& output_stream,
-                     const path& in_file,
-                     const std::vector<path>& include_directories) {
-    static std::regex single_include(R"/(\s*#\s*include\s*"([^"]*)"\s*)/");
-    static std::regex multy_include(R"/(\s*#\s*include\s*<([^>]*)>\s*)/");
+bool PreprocessInternal(std::ifstream& input_stream,
+                        std::ofstream& output_stream,
+                        const path& in_file,
+                        const std::vector<path>& include_directories) {
+    static std::regex include_pattern(R"/(\s*#\s*include\s*["<]([^">]*)[">]\s*)/");
     std::smatch match;
     std::string read_line;
     size_t line_no = 0;
 
     while (std::getline(input_stream, read_line)) {
-        path file_path;
-        bool found = true;
-        ++ line_no;
+        ++line_no;
 
-        if (std::regex_match(read_line, match, single_include)) {
-            file_path = in_file.parent_path() / std::string(match[1]);
+        if (std::regex_match(read_line, match, include_pattern)) {
+            path file_path = in_file.parent_path() / std::string(match[1]);
 
-            if (std::filesystem::exists(file_path)) {
-                if (!ProcessIncludeFile(file_path, in_file.string(), line_no, output_stream, include_directories)) {
-                    return false;
-                }
-                continue;
-            } else {
-                found = false;
-            }
-        }
-
-        if ((!found) || (std::regex_match(read_line, match, multy_include))) {
-            bool founded = false;
-            for (const auto& dir : include_directories) {
-                file_path = dir / std::string(match[1]);
-                if (std::filesystem::exists(file_path)) {
-                    if (ProcessIncludeFile(file_path, in_file.string(), line_no, output_stream, include_directories)) {
-                        founded = true;
+            if (!std::filesystem::exists(file_path)) {
+                bool found = false;
+                for (const auto& dir : include_directories) {
+                    file_path = dir / std::string(match[1]);
+                    if (std::filesystem::exists(file_path)) {
+                        found = true;
                         break;
-                    } else {
-                        return false;
                     }
                 }
+                if (!found) {
+                    PrintNegative(file_path.filename().string(), in_file.string(), line_no);
+                    return false;
+                }
             }
-            if (!founded) {
-                PrintNegative(file_path.filename().string(), in_file.string(), line_no);
+
+            if (!ProcessIncludeFile(file_path, in_file.string(), line_no, output_stream, include_directories)) {
                 return false;
             }
             continue;
         }
+
         output_stream << read_line << std::endl;
     }
     return true;
 }
+
 
 bool Preprocess (const path& in_file,
                  const path& out_file,
