@@ -1,0 +1,17 @@
+# Executables
+*.exe
+*.out
+*.app
+
+# Object files and libraries
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+
+# Editor and OS files
+.vscode/
+.DS_Store
